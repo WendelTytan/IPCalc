@@ -81,6 +81,7 @@ O objetivo do projeto é fornecer uma ferramenta prática para:
 | Hosts      | Quantidade de hosts disponíveis |
 | Máscara    | Máscara decimal e CIDR          |
 | Binário    | Conversão binária completa      |
+| Sub-Redes  | Faça Sub-Redes                  |
 
 ---
 
@@ -93,6 +94,7 @@ O objetivo do projeto é fornecer uma ferramenta prática para:
 | Hexadecimal | Representação hexadecimal   |
 | Binário     | Conversão binária           |
 | Expansão    | Endereço expandido completo |
+| Sub-Redes   | Faça Sub-Redes              |
 
 ---
 

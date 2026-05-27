@@ -1,34 +1,4 @@
-﻿tailwind.config = {
-theme: {
-    extend: {
-    fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'Menlo', 'monospace'],
-    },
-    colors: {
-        bg:        'oklch(0.16 0.02 250)',
-        fg:        'oklch(0.96 0.01 250)',
-        card:      'oklch(0.21 0.025 255)',
-        secondary: 'oklch(0.28 0.03 255)',
-        muted:     'oklch(0.24 0.025 255)',
-        mutedfg:   'oklch(0.7 0.02 250)',
-        border:    'oklch(0.3 0.025 255)',
-        input:     'oklch(0.26 0.025 255)',
-        primary:   'oklch(0.75 0.18 165)',
-        primaryfg: 'oklch(0.15 0.03 200)',
-        accent:    'oklch(0.7 0.18 250)',
-        ring:      'oklch(0.75 0.18 165)',
-        destructive: 'oklch(0.65 0.24 25)',
-        network:   'oklch(0.78 0.18 165)',
-        host:      'oklch(0.75 0.16 65)',
-        broadcast: 'oklch(0.7 0.2 25)',
-    },
-    },
-},
-}; //não sei porque isso não tá carregando no tailwind na hora de compilar, então 
-//o jeito foi colocar de maneira manual e colocar o cdn, tentar entender depois
-
-/* ============================================================
+﻿/* ============================================================
  * IPv4
  * ============================================================ */
 function isValidOctets(o) { 
@@ -265,6 +235,14 @@ const state = {
   mask6Bin: "",
   hosts6Str: "254",
   hosts6IpStr: "2001:db8::",
+  // Fatiamento ipv4
+  fatiaIpStr: "192.168.1.0",
+  fatiaCidrBaseStr: "24",
+  fatiaCidrNovoStr: "26",
+  // Fatiamento ipv6
+  fatia6IpStr: "2001:db8::",
+  fatia6PrefixBaseStr: "56",
+  fatia6PrefixNovoStr: "64",
 };
 
 // Iniciando calculo do ipv6 binario para ter um placeholder
@@ -335,6 +313,24 @@ function groupBinHTML(groups, opts={}){
   );
 }
 
+function ipToInt(ipOctets) {
+  return (
+    (ipOctets[0] << 24) | 
+    (ipOctets[1] << 16) | 
+    (ipOctets[2] << 8) |
+     ipOctets[3]
+    ) >>> 0;
+}
+
+function intToIp(intNum) {
+  return [
+    (intNum >>> 24) & 255, 
+    (intNum >>> 16) & 255, 
+    (intNum >>> 8) & 255, 
+    intNum & 255
+  ];
+}
+
 /* ============================================================
  * Compute
  * ============================================================ */
@@ -395,6 +391,47 @@ function computeV4(){
         error: "Máscara inválida: precisa ter todos os 1s contíguos antes dos 0s." 
       };
     return { calc: calculate4(ip, mask) };
+  } else if (state.mode === "fatiamento") {
+    const ip = parseIp4(state.fatiaIpStr);
+    const baseCidr = Number(state.fatiaCidrBaseStr);
+    const novoCidr = Number(state.fatiaCidrNovoStr);
+    
+    if (!ip) return { error: "IP base inválido." };
+    if (baseCidr < 0 || baseCidr > 32 || novoCidr < 0 || novoCidr > 32) return { error: "CIDR inválido. Use 0 a 32." };
+    if (novoCidr <= baseCidr) return { error: "O Novo CIDR deve ser MAIOR que o CIDR Original para fatiar a rede." };
+
+    const bitsEmprestados = novoCidr - baseCidr;
+    if (bitsEmprestados > 20) return { error: "Essa divisão gera mais de 1 milhão de sub-redes! Tente um intervalo menor." };
+    
+    const numSubredes = Math.pow(2, bitsEmprestados);
+    const hostBits = 32 - novoCidr;
+    const tamanhoSubrede = Math.pow(2, hostBits);
+
+    // Garante que o IP digitado seja o ID real da rede base
+    const maskBase = cidrToMask4(baseCidr);
+    const netBase = ip.map((o,i) => o & maskBase[i]);
+    const baseInt = ipToInt(netBase);
+
+    const subredes = [];
+    const maxDisplay = 256; // Limite visual para não travar o DOM
+    
+    for(let i = 0; i < Math.min(numSubredes, maxDisplay); i++) {
+      const subNetInt = baseInt + (i * tamanhoSubrede);
+      const subIp = intToIp(subNetInt);
+      // Reutilizamos a sua função calculate4 para cada pedaço
+      subredes.push(calculate4(subIp, cidrToMask4(novoCidr))); 
+    }
+
+    return { calcFatia: 
+      { numSubredes, 
+        subredes, 
+        maxDisplay, 
+        novoCidr, 
+        tamanhoSubrede, 
+        netBase, 
+        baseCidr 
+      } 
+    };
   } else {
     const ip = parseIp4(state.hostsIpStr);
     const hosts = Number(state.hostsStr);
@@ -468,6 +505,45 @@ function computeV6(){
     return { 
       calc: calculate6(ip, p) 
     };
+  } else if (state.mode === "fatiamento") {
+    const ip = parseIp6(state.fatia6IpStr);
+    const basePrefix = Number(state.fatia6PrefixBaseStr);
+    const novoPrefix = Number(state.fatia6PrefixNovoStr);
+
+    if (!ip) return { error: "IPv6 base inválido. Ex.: 2001:db8::" };
+    if (basePrefix < 0 || basePrefix > 128 || novoPrefix < 0 || novoPrefix > 128) return { error: "Prefixo inválido. Use 0 a 128." };
+    if (novoPrefix <= basePrefix) return { error: "O Novo Prefixo deve ser MAIOR que o Prefixo Original." };
+
+    const bitsEmprestados = novoPrefix - basePrefix;
+    if (bitsEmprestados > 32) return { error: "Essa divisão é colossal! Tente um intervalo menor para não sobrecarregar o navegador." };
+
+    const numSubredes = 1n << BigInt(bitsEmprestados);
+    const hostBits = 128 - novoPrefix;
+    const tamanhoSubrede = 1n << BigInt(hostBits);
+
+    const ipBig = ip6ToBigInt(ip);
+    const maskBaseBig = prefixToMask6(basePrefix);
+    const netBaseBig = ipBig & maskBaseBig;
+
+    const subredes = [];
+    const maxDisplay = 256; 
+    const limit = numSubredes > BigInt(maxDisplay) ? BigInt(maxDisplay) : numSubredes;
+
+    for (let i = 0n; i < limit; i++) {
+      const subNetBig = netBaseBig + (i * tamanhoSubrede);
+      const subIpGroups = bigIntToIp6(subNetBig);
+      subredes.push(calculate6(subIpGroups, novoPrefix));
+    }
+
+    return { calcFatia6: { 
+      numSubredes, 
+      subredes, 
+      maxDisplay, 
+      novoPrefix, 
+      tamanhoSubrede, 
+      netBase: bigIntToIp6(netBaseBig), basePrefix 
+    } 
+  };
   } else {
     const ip = parseIp6(state.hosts6IpStr);
     if (!ip) return { 
@@ -504,6 +580,7 @@ function computeV6(){
  * Render
  * ============================================================ */
 const inputCls = "w-full px-4 py-3 rounded-lg bg-input border border-border font-mono text-base sm:text-lg focus:outline-none focus:ring-2 focus:ring-ring";
+const inputSub = "px-4 py-3 rounded-lg bg-input border border-border font-mono text-base sm:text-lg focus:outline-none focus:ring-2 focus:ring-ring";
 const labelCls = "block text-xs font-mono uppercase tracking-wider text-mutedfg mb-2";
 
 function renderVersionSwitch(){
@@ -527,7 +604,8 @@ function renderModeSwitch(){
   const modes = [
     ["decimal", state.version==="v6" ? "IPv6 + /Prefixo" : "IP + /CIDR"],
     ["binario","Binário"],
-    ["hosts","Por nº de Hosts"]
+    ["hosts","Por nº de Hosts"],
+    ["fatiamento", "Sub-Redes"]
   ];
   return `
     <div class="flex justify-center mb-8">
@@ -654,6 +732,90 @@ function renderInputs(){
           />
         </div>
       </div>`;
+  } 
+  if (state.mode === "fatiamento") {
+    if (isV6) {
+      return `
+        <div class="grid sm:grid-cols-[1fr_auto_auto] gap-4 items-end">
+          <div>
+            <label class="${labelCls}">IPv6 da Rede Original</label>
+            <input data-bind="fatia6IpStr" value="${esc(state.fatia6IpStr)}" placeholder="2001:db8::" class="${inputCls}" />
+          </div>
+          <div>
+            <label class="${labelCls}">Prefixo Base</label>
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-lg text-primary">/</span>
+              <input 
+                data-bind="fatia6PrefixBaseStr"
+                type="text"
+                inputmode="numeric"
+                min="0"
+                max="127" 
+                value="${esc(state.fatia6PrefixBaseStr)}" 
+                class="w-20 ${inputSub}" 
+              />
+            </div>
+          </div>
+          <div>
+            <label class="${labelCls}">Novo Prefixo</label>
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-lg text-network">/</span>
+              <input 
+                data-bind="fatia6PrefixNovoStr" 
+                type="text"
+                inputmode="numeric"
+                min="1"
+                max="128" 
+                value="${esc(state.fatia6PrefixNovoStr)}" 
+                class="w-20 ${inputSub}" 
+              />
+            </div>
+          </div>
+        </div>
+        <p class="mt-4 text-xs text-mutedfg font-mono">
+          Aviso: O fatiamento IPv6 pode gerar bilhões de sub-redes. Exibiremos no máximo as 256 primeiras.
+        </p>`;
+    }
+    return `
+      <div class="grid sm:grid-cols-[1fr_auto_auto] gap-4 items-end">
+        <div>
+          <label class="${labelCls}">IP da Rede Original</label>
+          <input data-bind="fatiaIpStr" value="${esc(state.fatiaIpStr)}" placeholder="192.168.1.0" class="${inputCls}" />
+        </div>
+        <div>
+          <label class="${labelCls}">CIDR Original</label>
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-lg text-primary">/</span>
+            <input 
+              data-bind="fatiaCidrBaseStr" 
+              type="text"
+              inputmode="numeric"
+              min="0" 
+              max="31" 
+              value="${esc(state.fatiaCidrBaseStr)}" 
+              class="w-20 ${inputSub}" 
+            />
+          </div>
+        </div>
+        <div>
+          <label class="${labelCls}">Novo CIDR</label>
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-lg text-network">/</span>
+            <input 
+              data-bind="fatiaCidrNovoStr" 
+              type="text"
+              inputmode="numeric"
+              min="1"
+              max="32" 
+              value="${esc(state.fatiaCidrNovoStr)}" 
+              class="w-20 ${inputSub}" 
+            />
+          </div>
+        </div>
+      </div>
+      <p class="mt-4 text-xs text-mutedfg font-mono">
+        Divide a rede original em múltiplas sub-redes menores baseadas no novo CIDR.
+      </p>`;
   }
   // hosts
   if (isV6){
@@ -714,6 +876,9 @@ function renderResults(){
   if (r.error){
     return `<div class="rounded-xl border border-destructive/40 bg-destructive/10 text-fg p-4 text-sm">${esc(r.error)}</div>`;
   }
+  if (r.calcFatia) return renderFatiamento4(r.calcFatia);
+  if (r.calcFatia6) return renderFatiamento6(r.calcFatia6); // <--- NOVA LINHA
+  
   return state.version === "v6" ? renderResults6(r.calc) : renderResults4(r.calc);
 }
 
@@ -805,6 +970,95 @@ function renderResults4(calc){
         <div class="text-xs font-mono uppercase tracking-wider text-mutedfg mb-2">Notação CIDR</div>
         <div class="font-mono text-lg sm:text-xl text-primary">${formatIp4(calc.networkOctets)}/${calc.cidr}</div>
         <div class="font-mono text-xs text-mutedfg mt-1 break-all">${formatBin4(calc.networkOctets)}</div>
+      </div>
+    </div>`;
+}
+
+function renderFatiamento4(fatia) {
+  const stat = (label,value) => `
+    <div class="rounded-xl border border-border bg-card p-4">
+      <div class="text-[10px] font-mono uppercase tracking-wider text-mutedfg">${esc(label)}</div>
+      <div class="text-xl font-semibold mt-1 truncate">${esc(value)}</div>
+    </div>`;
+
+  const rowsHtml = fatia.subredes.map((calc, i) => `
+    <div class="grid grid-cols-[40px_1fr_1fr_1fr] sm:grid-cols-[60px_1fr_1fr_1fr_1fr] gap-x-4 px-4 py-3 hover:bg-secondary/30 transition-colors text-sm font-mono items-center">
+      <div class="text-mutedfg">#${i}</div>
+      <div class="text-network font-semibold">${formatIp4(calc.networkOctets)}</div>
+      <div class="hidden sm:block text-fg">${formatIp4(calc.firstHostOctets)}</div>
+      <div class="hidden sm:block text-fg">${formatIp4(calc.lastHostOctets)}</div>
+      <div class="text-broadcast">${formatIp4(calc.broadcastOctets)}</div>
+    </div>
+  `).join("");
+
+  return `
+    <div class="space-y-6 fade-in">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        ${stat("Rede Base", formatIp4(fatia.netBase) + "/" + fatia.baseCidr)}
+        ${stat("Sub-redes Criadas", fatia.numSubredes.toLocaleString("pt-BR"))}
+        ${stat("Novo Tamanho (/CIDR)", "/" + fatia.novoCidr)}
+        ${stat("Hosts por Sub-rede", (fatia.tamanhoSubrede > 2 ? fatia.tamanhoSubrede - 2 : 0).toLocaleString("pt-BR"))}
+      </div>
+
+      <div class="rounded-2xl border border-border bg-card overflow-hidden">
+        <div class="grid grid-cols-[40px_1fr_1fr_1fr] sm:grid-cols-[60px_1fr_1fr_1fr_1fr] gap-x-4 px-4 py-3 border-b border-border bg-secondary/50 text-xs font-mono uppercase tracking-wider text-mutedfg">
+          <div>Nº</div>
+          <div>ID da Rede</div>
+          <div class="hidden sm:block">Primeiro Host</div>
+          <div class="hidden sm:block">Último Host</div>
+          <div>Broadcast</div>
+        </div>
+        <div class="divide-y divide-border">
+          ${rowsHtml}
+        </div>
+        ${fatia.numSubredes > fatia.maxDisplay ? `
+          <div class="p-4 text-center text-xs text-mutedfg bg-secondary/20">
+            Mostrando as primeiras ${fatia.maxDisplay} de ${fatia.numSubredes.toLocaleString("pt-BR")} sub-redes para otimização de performance.
+          </div>
+        ` : ""}
+      </div>
+    </div>`;
+}
+
+function renderFatiamento6(fatia) {
+  const stat = (label,value) => `
+    <div class="rounded-xl border border-border bg-card p-4 min-w-0">
+      <div class="text-[10px] font-mono uppercase tracking-wider text-mutedfg">${esc(label)}</div>
+      <div class="text-lg sm:text-xl font-semibold mt-1 truncate" title="${esc(value)}">${esc(value)}</div>
+    </div>`;
+
+  const rowsHtml = fatia.subredes.map((calc, i) => `
+    <div class="grid grid-cols-[40px_1fr] sm:grid-cols-[60px_1fr_1fr] gap-4 px-4 py-3 hover:bg-secondary/30 transition-colors text-sm font-mono items-center border-b border-border/50 last:border-0">
+      <div class="text-mutedfg">#${i}</div>
+      <div class="space-y-1 min-w-0">
+        <div class="text-xs text-mutedfg uppercase">ID da Rede</div>
+        <div class="text-network font-semibold break-all">${formatIp6(calc.networkGroups)}</div>
+      </div>
+      <div class="space-y-1 min-w-0">
+        <div class="text-xs text-mutedfg uppercase">Último Endereço</div>
+        <div class="text-broadcast break-all">${formatIp6(calc.lastGroups)}</div>
+      </div>
+    </div>
+  `).join("");
+
+  return `
+    <div class="space-y-6 fade-in">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        ${stat("Rede Base", formatIp6(fatia.netBase) + "/" + fatia.basePrefix)}
+        ${stat("Sub-redes Criadas", fmtBig(fatia.numSubredes))}
+        ${stat("Novo Tamanho", "/" + fatia.novoPrefix)}
+        ${stat("Total por Sub-rede", fmtBig(fatia.tamanhoSubrede))}
+      </div>
+
+      <div class="rounded-2xl border border-border bg-card overflow-hidden">
+        <div class="divide-y divide-border">
+          ${rowsHtml}
+        </div>
+        ${fatia.numSubredes > BigInt(fatia.maxDisplay) ? `
+          <div class="p-4 text-center text-xs text-mutedfg bg-secondary/20 font-mono">
+            Mostrando apenas as primeiras ${fatia.maxDisplay} de ${fmtBig(fatia.numSubredes)} sub-redes.
+          </div>
+        ` : ""}
       </div>
     </div>`;
 }
@@ -909,14 +1163,11 @@ function render(){
   app.innerHTML = `
     <div class="w-full max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
       <header class="mb-10 text-center">
-        <div class="inline-block px-3 py-1 mb-4 text-xs font-mono tracking-wider rounded-full bg-secondary text-fg border border-border">
-          NETWORK · SUBNET · CALC · IPv4 / IPv6
-        </div>
         <h1 class="text-3xl sm:text-5xl font-bold tracking-tight bg-gradient-to-br from-primary via-accent to-primary bg-clip-text text-transparent">
-          Calculadora de Sub-redes
+          Calculadora de Redes
         </h1>
         <p class="mt-3 text-mutedfg max-w-xl mx-auto">
-          IPv4 e IPv6: calcule máscara, ID de rede, broadcast/último endereço e hosts — em decimal/hex, binário, ou pelo número de hosts.
+          IPv4 e IPv6: calcule máscara, ID de rede, broadcast/último endereço e hosts — em decimal/hex, binário, ou pelo número de hosts & Sub-redes.
         </p>
       </header>
       ${renderVersionSwitch()}
