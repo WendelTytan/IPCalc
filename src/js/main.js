@@ -418,7 +418,7 @@ function computeV4(){
     for(let i = 0; i < Math.min(numSubredes, maxDisplay); i++) {
       const subNetInt = baseInt + (i * tamanhoSubrede);
       const subIp = intToIp(subNetInt);
-      // Reutilizamos a sua função calculate4 para cada pedaço
+      
       subredes.push(calculate4(subIp, cidrToMask4(novoCidr))); 
     }
 
@@ -877,7 +877,7 @@ function renderResults(){
     return `<div class="rounded-xl border border-destructive/40 bg-destructive/10 text-fg p-4 text-sm">${esc(r.error)}</div>`;
   }
   if (r.calcFatia) return renderFatiamento4(r.calcFatia);
-  if (r.calcFatia6) return renderFatiamento6(r.calcFatia6); // <--- NOVA LINHA
+  if (r.calcFatia6) return renderFatiamento6(r.calcFatia6);
   
   return state.version === "v6" ? renderResults6(r.calc) : renderResults4(r.calc);
 }
