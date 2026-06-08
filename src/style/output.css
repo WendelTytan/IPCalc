@@ -169,6 +169,16 @@ html,
 2. Inherit line-height from `html` so users can set them as a class directly on the `html` element.
 */
 
+:root {
+  --texto-primario-cl: oklch(0.78 0.18 165);
+  --texto-secundario-cl: oklch(0.75 0.16 65);
+  --texto-terciario-cl: oklch(0.7 0.18 250);
+
+  --texto-primario-es: oklch(0.7 0.18 250);
+  --texto-secundario-es: oklch(0.78 0.18 165);
+  --texto-terciario-es: oklch(0.75 0.16 65);
+}
+
 body {
   margin: 0;
   /* 1 */
@@ -1537,4 +1547,143 @@ input {
     font-size: 1.25rem;
     line-height: 1.75rem;
   }
+}
+
+/*  */
+
+.texto-primario {
+  color: var(--texto-primario-cl);
+}
+
+.dark .texto-primario {
+  color: var(--texto-primario-es);
+}
+
+.icons {
+  color: var(--texto-terciario-cl);
+}
+
+.dark .icons {
+  color: var(--texto-terciario-es);
+}
+
+.texto-secundario {
+  color: var(--texto-secundario-cl);
+}
+
+.dark .texto-secundario {
+  color: var(--texto-secundario-es);
+}
+
+.texto-terciario{
+  color: var(--texto-terciario-cl);
+}
+
+.dark .texto-terciario{
+  color: var(--texto-terciario-es);
+}
+
+.icons:hover {
+  color: var(--texto-terciario-es);
+}
+
+.dark .icons:hover {
+  color: var(--texto-terciario-cl);
+}
+
+.icon-footer {
+  width: 2em;
+  height: 2em;
+}
+
+/* Container do Link (Necessário para posicionar o tooltip) */
+.tooltip {
+  position: relative;
+  /* Se o link quebrar linha, o tooltip pode bugar, então inline-block é mais seguro */
+  display: inline-block; 
+}
+
+/* O Tooltip em si (a caixinha) */
+.tooltip::after {
+  content: attr(data-tooltip); /* Pega o texto do atributo HTML */
+  position: absolute;
+  
+  /* Posicionamento: Acima do elemento */
+  bottom: 110%; 
+  left: 50%;
+  transform: translateX(-50%) translateY(10px); /* Começa um pouco descido para animar */
+  
+  /* Visual */
+  background-color: rgba(30, 30, 30, 0.9); /* Quase preto, levemente transparente */
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  white-space: nowrap; /* Impede que o texto quebre linha */
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  border: 1px solid rgba(255,255,255,0.1); /* Borda sutil */
+  
+  /* Efeitos de transição (Animação) */
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55); /* Efeito "bounce" suave */
+  z-index: 1000;
+  pointer-events: none; /* Garante que o mouse não trave no tooltip */
+}
+
+/* A setinha embaixo do tooltip (Triângulo) */
+.tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%; /* Cola na base do tooltip */
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  border-width: 6px;
+  border-style: solid;
+  border-color: rgba(30, 30, 30, 0.9) transparent transparent transparent; /* Triângulo apontando pra baixo */
+  
+  /* Animação junto com a caixa */
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  z-index: 1000;
+}
+
+/* O Estado Hover (Quando passa o mouse) */
+.tooltip:hover::after,
+.tooltip:hover::before {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0); /* Sobe para a posição final */
+}
+
+/* No HTML use class="tooltip tooltip-right" */
+.tooltip-right {
+  display: contents;   /* Ou 'flex', dependendo do seu layout original */
+}
+
+.tooltip-right::after {
+  left: auto;
+  right: 0;
+  transform: translateY(10px);
+}
+.tooltip-right:hover::after {
+  transform: translateY(0);
+}
+/* E ajuste a setinha ::before proporcionalmente */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+#contact {
+  padding-bottom: 3rem;
 }

@@ -1,4 +1,8 @@
-﻿/* ============================================================
+﻿import { loadFooter } from "./components/footer.js";
+
+loadFooter();
+
+/* ============================================================
  * IPv4
  * ============================================================ */
 function isValidOctets(o) { 
@@ -241,11 +245,13 @@ const state = {
   fatiaCidrBaseStr: "24",
   fatiaCidrNovoStr: "26",
   fatiaRedesStr: "4",
+  fatiaHostsStr: "30",
   // Fatiamento ipv6
   fatia6IpStr: "2001:db8::",
-  fatia6PrefixBaseStr: "56",
-  fatia6PrefixNovoStr: "64",
+  fatia6PrefixBaseStr: "122",
+  fatia6PrefixNovoStr: "123",
   fatia6RedesStr: "4",
+  fatia6HostsStr: "31", 
 };
 
 // Iniciando calculo do ipv6 binario para ter um placeholder
@@ -411,16 +417,29 @@ function computeV4(){
       if (novoCidr <= baseCidr || novoCidr > 32) return { 
         error: "O Novo CIDR deve ser MAIOR que o CIDR Original e <= 32." 
       };
-    } else {
-      const redesDesejadas = Number(state.fatiaRedesStr);
+    } else if (state.fatiamentoMode === "redes") {
+      const redesDesejadas = Number(String(state.fatiaRedesStr).replace(/[.,\s]/g, ""));
       if (!Number.isInteger(redesDesejadas) || redesDesejadas < 1) return { 
         error: "Quantidade de redes deve ser ≥ 1." 
       };
-      
       const bitsEmprestados = Math.ceil(Math.log2(redesDesejadas));
       novoCidr = baseCidr + bitsEmprestados;
       if (novoCidr > 32) return { 
         error: `Para criar ${redesDesejadas} redes, a máscara passaria de /32 (IPv4 esgotado).` 
+      };
+    } else {
+      const reqHosts = Number(String(state.fatiaHostsStr).replace(/[.,\s]/g, ""));
+      if (!Number.isInteger(reqHosts) || reqHosts < 1) return { 
+        error: "Quantidade de computadores deve ser ≥ 1." 
+      };
+      
+      let hostBits = 0;
+      // Precisamos cobrir a qtde de hosts + 2 endereços (Rede e Broadcast)
+      while (Math.pow(2, hostBits) - 2 < reqHosts) { hostBits++; }
+      novoCidr = 32 - hostBits;
+      
+      if (novoCidr < baseCidr) return { 
+        error: `Para ter ${reqHosts} computadores, a máscara precisaria ser /${novoCidr}. Essa sub-rede é maior que a sua rede original (/${baseCidr}), portanto não cabe.` 
       };
     }
 
@@ -465,7 +484,7 @@ function computeV4(){
     };
   } else {
     const ip = parseIp4(state.hostsIpStr);
-    const hosts = Number(state.hostsStr);
+    const hosts = Number(String(state.hostsStr).replace(/[.,\s]/g, ""));
     if (!ip) 
       return { 
         error: "IP inválido. Use o formato 0.0.0.0" 
@@ -553,24 +572,46 @@ function computeV6(){
       if (novoPrefix <= basePrefix || novoPrefix > 128) return { 
         error: "O Novo Prefixo deve ser MAIOR que o Prefixo Original." 
       };
-    } else {
+    } else if (state.fatiamentoMode === "redes") {
       let redesDesejadas;
       try { 
-        redesDesejadas = BigInt(String(state.fatia6RedesStr).trim()); 
-      } catch(e) { return 
-        { error: "Quantidade inválida." }; 
+        redesDesejadas = BigInt(String(state.fatia6RedesStr).replace(/[.,\s]/g, "")); 
+      } catch(e) { 
+        return { 
+          error: "Quantidade inválida." 
+        }; 
       }
       if (redesDesejadas < 1n) return { 
         error: "Quantidade de redes deve ser ≥ 1." 
       };
-      
       let bitsEmprestadosCalc = 0;
       while ((1n << BigInt(bitsEmprestadosCalc)) < redesDesejadas) { bitsEmprestadosCalc++; }
-      
       novoPrefix = basePrefix + bitsEmprestadosCalc;
       if (novoPrefix > 128) return { 
         error: "Excede o espaço de 128 bits do IPv6." 
       };
+    } else {
+      // MODO POR HOSTS (NOVO)
+      let reqHostsBig;
+      try { 
+        reqHostsBig = BigInt(String(state.fatia6HostsStr).replace(/[.,\s]/g, "")); 
+      } catch(e) { 
+        return { 
+          error: "Quantidade inválida." 
+        }; 
+      }
+      if (reqHostsBig < 1n) return { 
+        error: "Quantidade de computadores deve ser ≥ 1." 
+      };
+      
+      let hostBits = 0;
+      // Precisamos cobrir a qtde de hosts (adiciona +1 para reservar o ID da rede, comportamento típico IPv6)
+      while ((1n << BigInt(hostBits)) < reqHostsBig + 1n) { hostBits++; }
+      novoPrefix = 128 - hostBits;
+      
+      if (novoPrefix < basePrefix) return { 
+        error: `Para comportar ${reqHostsBig} endereços, o prefixo seria /${novoPrefix}. Essa sub-rede é maior que a sua rede original (/${basePrefix}), portanto não cabe.` 
+        };
     }
 
     if (novoPrefix >= 127) {
@@ -618,12 +659,11 @@ function computeV6(){
     };
     let hostsBig;
     try { 
-      hostsBig = BigInt(String(state.hosts6Str).trim()); 
-    }
-    catch(e){ 
+      hostsBig = BigInt(String(state.hosts6Str).replace(/[.,\s]/g, "")); 
+    } catch(e) { 
       return { 
         error: "Quantidade de hosts inválida." 
-      };
+      }; 
     }
     if (hostsBig < 1n) return { 
       error: "Quantidade de hosts deve ser ≥ 1." 
@@ -803,7 +843,8 @@ function renderInputs(){
   if (state.mode === "fatiamento") {
     const fatiaSubmodes = [
       ["cidr", isV6 ? "Por Novo Prefixo" : "Por Novo CIDR"],
-      ["redes", "Por Nº de Redes"]
+      ["redes", "Por Nº de Redes"],
+      ["hosts", "Por Nº de Hosts"]
     ];
     
     const baseCidrBind = isV6 ? "fatia6PrefixBaseStr" : "fatiaCidrBaseStr";
@@ -815,7 +856,7 @@ function renderInputs(){
 
     return `
       <div class="space-y-4">
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           ${fatiaSubmodes.map(([sm,label]) => `
             <button data-fatiasub="${sm}" class="px-3 py-1 text-xs font-mono uppercase tracking-wider rounded-full border transition-all 
             ${state.fatiamentoMode === sm 
@@ -837,6 +878,7 @@ function renderInputs(){
               <input data-bind="${baseCidrBind}" type="text" inputmode="numeric" min="0" max="${maxCidr}" value="${esc(baseCidrVal)}" class="w-20 ${inputSub}" />
             </div>
           </div>
+          
           ${state.fatiamentoMode === "cidr" ? `
             <div>
               <label class="${labelCls}">Novo ${isV6 ? "Prefixo" : "CIDR"}</label>
@@ -845,10 +887,15 @@ function renderInputs(){
                 <input data-bind="${isV6 ? "fatia6PrefixNovoStr" : "fatiaCidrNovoStr"}" type="text" inputmode="numeric" min="1" max="${maxCidr}" value="${esc(isV6 ? state.fatia6PrefixNovoStr : state.fatiaCidrNovoStr)}" class="w-20 ${inputSub}" />
               </div>
             </div>
-          ` : `
+          ` : state.fatiamentoMode === "redes" ? `
             <div>
               <label class="${labelCls}">Qtd. Sub-redes</label>
-              <input data-bind="${isV6 ? "fatia6RedesStr" : "fatiaRedesStr"}" type="text" inputmode="numeric" min="1" value="${esc(isV6 ? state.fatia6RedesStr : state.fatiaRedesStr)}" class="w-25 ${inputSub}" placeholder="Ex: 4" />
+              <input data-bind="${isV6 ? "fatia6RedesStr" : "fatiaRedesStr"}" type="text" inputmode="numeric" min="1" value="${esc(isV6 ? state.fatia6RedesStr : state.fatiaRedesStr)}" class="w-28 ${inputSub}" placeholder="Ex: 4" />
+            </div>
+          ` : `
+            <div>
+              <label class="${labelCls}">Computadores (Hosts)</label>
+              <input data-bind="${isV6 ? "fatia6HostsStr" : "fatiaHostsStr"}" type="text" inputmode="numeric" min="1" value="${esc(isV6 ? state.fatia6HostsStr : state.fatiaHostsStr)}" class="w-32 ${inputSub}" placeholder="Ex: 30" />
             </div>
           `}
         </div>
@@ -1016,9 +1063,9 @@ function renderResults4(calc){
 
 function renderFatiamento4(fatia) {
   const stat = (label,value) => `
-    <div class="rounded-xl border border-border bg-card p-4">
+    <div class="flex-1 min-w-[140px] overflow-hidden rounded-xl border border-border bg-card p-4">
       <div class="text-[10px] font-mono uppercase tracking-wider text-mutedfg">${esc(label)}</div>
-      <div class="text-xl font-semibold mt-1 truncate">${esc(value)}</div>
+      <div class="text-xl font-semibold mt-1 truncate" title="${esc(value)}">${esc(value)}</div>
     </div>`;
 
   const rowsHtml = fatia.subredes.map((calc, i) => `
@@ -1035,7 +1082,7 @@ function renderFatiamento4(fatia) {
 
   return `
     <div class="space-y-6 fade-in">
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+      <div class="flex flex-wrap gap-3">
         ${stat("Rede Base", formatIp4(fatia.netBase) + "/" + fatia.baseCidr)}
         ${stat("Sub-redes", fatia.numSubredes.toLocaleString("pt-BR"))}
         ${stat("Novo CIDR", "/" + fatia.novoCidr)}
@@ -1065,7 +1112,7 @@ function renderFatiamento4(fatia) {
 
 function renderFatiamento6(fatia) {
   const stat = (label,value) => `
-    <div class="rounded-xl border border-border bg-card p-4 min-w-0">
+    <div class="flex-1 min-w-[150px] overflow-hidden rounded-xl border border-border bg-card p-4">
       <div class="text-[10px] font-mono uppercase tracking-wider text-mutedfg">${esc(label)}</div>
       <div class="text-lg sm:text-xl font-semibold mt-1 truncate" title="${esc(value)}">${esc(value)}</div>
     </div>`;
@@ -1088,7 +1135,7 @@ function renderFatiamento6(fatia) {
 
   return `
     <div class="space-y-6 fade-in">
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+      <div class="flex flex-wrap gap-3">
         ${stat("Rede Base", formatIp6(fatia.netBase) + "/" + fatia.basePrefix)}
         ${stat("Sub-redes", fmtBig(fatia.numSubredes))}
         ${stat("Novo Prefixo", "/" + fatia.novoPrefix)}
