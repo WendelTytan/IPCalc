@@ -94,7 +94,3 @@
         year.textContent = new Date().getFullYear();
     }
 }
-
-// TODO ajustar as tags que faltam na sincronia das novas tags tailwind
-// TODO nome dos projetos está em placeholder
-// TODO SKOOB bugado mais uma vez
